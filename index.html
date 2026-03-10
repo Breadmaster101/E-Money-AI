@@ -1029,6 +1029,10 @@
 
 
         // --- Onboarding Flow ---
+        compatModeCheckbox.addEventListener("change", (e) => {
+            logToConsole(`[System] Compatibility Mode ${e.target.checked ? "enabled (fp16)" : "disabled (q4f16)"}`);
+        });
+
         btnAllowMic.addEventListener("click", async () => {
             try {
                 globalMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1043,6 +1047,7 @@
 
         btnInitModels.addEventListener("click", async () => {
             btnInitModels.disabled = true;
+            compatModeCheckbox.disabled = true;
             await initAudioContext(); // Initialize audio context upon user gesture
 
             logToConsole("[System] Requesting Parakeet STT initialization (FP16)...");
