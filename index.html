@@ -1,0 +1,1309 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>E-Money AI</title>
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const theme = savedTheme ? savedTheme : (prefersDark ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&display=swap');
+
+        :root {
+            /* Café Parisien Theme */
+            --bg-base: #FAF9F6;
+            --bg-base-transparent: rgba(250, 249, 246, 0.75);
+            --bg-surface: #FFFFFF;
+            --bg-elevated: #F0EFEA;
+            --accent: #E07A5F;
+            --accent-dim: rgba(224, 122, 95, 0.15);
+            --text-main: #2D2422;
+            --text-muted: #7A726A;
+            --border: #E5E0D8;
+            --border-transparent: rgba(229, 224, 216, 0.5);
+            --error: #D9534F;
+            --success: #6B8E7B;
+            --font-ui: 'Inter', sans-serif;
+            --font-serif: 'Merriweather', serif;
+        }
+
+        [data-theme="dark"] {
+            /* Dark Café Theme */
+            --bg-base: #1A1614;
+            --bg-base-transparent: rgba(26, 22, 20, 0.75);
+            --bg-surface: #24201E;
+            --bg-elevated: #312C29;
+            --accent: #E07A5F;
+            --accent-dim: rgba(224, 122, 95, 0.15);
+            --text-main: #F4F0EB;
+            --text-muted: #9E968F;
+            --border: #4A433E;
+            --border-transparent: rgba(74, 67, 62, 0.5);
+            --error: #E67A7A;
+            --success: #81C995;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* --- Hidden Original Elements (To preserve logic) --- */
+        #hidden-original-ui {
+            display: none;
+        }
+
+        /* --- Onboarding Screen --- */
+        #onboarding-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 550px;
+            padding: 40px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.05);
+            z-index: 10;
+        }
+
+        .brand-title {
+            font-family: var(--font-serif);
+            font-size: 3rem;
+            color: var(--accent);
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+
+        .brand-subtitle {
+            color: var(--text-muted);
+            margin-bottom: 30px;
+            font-size: 1.1rem;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-size: 1.05rem;
+            cursor: pointer;
+            font-family: var(--font-ui);
+            font-weight: 500;
+            transition: all 0.2s;
+            width: 100%;
+            margin-bottom: 16px;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 4px 12px var(--accent-dim);
+        }
+
+        .btn-primary:disabled {
+            background: var(--bg-elevated);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        /* --- Console --- */
+        .console-container {
+            width: 100%;
+            margin-top: 20px;
+            background: #1e1e1e;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border);
+        }
+
+        .console-header {
+            background: #2d2d2d;
+            color: #888;
+            padding: 8px 12px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .console-body {
+            height: 200px;
+            overflow-y: auto;
+            padding: 12px;
+            color: #ffffff;
+            font-family: monospace;
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+
+        /* --- Main Visualizer UI --- */
+        #main-screen {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
+        }
+
+        .visualizer-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 300px;
+            height: 300px;
+        }
+
+        #visualizer-circle {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            
+            /* Dynamic rendering powered by CSS variables modified smoothly in JS */
+            background-color: var(--accent);
+            border: 0px solid var(--accent);
+            --viz-color: var(--accent-dim);
+            box-shadow: 0 0 var(--viz-glow, 40px) var(--viz-color);
+            transform: scale(var(--viz-scale, 1));
+            
+            transition: background-color 0.4s ease, border-width 0.4s ease, border-color 0.4s ease;
+            will-change: transform, box-shadow;
+        }
+
+        #visualizer-circle.recording {
+            background-color: var(--transparent);
+            border: 8px solid var(--error);
+            --viz-color: rgba(217, 83, 79, 0.4);
+        }
+
+        #visualizer-circle.thinking {
+            background-color: var(--success);
+            border: 0px solid var(--success);
+            --viz-color: rgba(107, 142, 123, 0.4);
+        }
+
+        .ptt-text {
+            margin-top: 40px;
+            font-family: var(--font-ui);
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            font-weight: 300;
+            transition: color 0.3s;
+        }
+
+        .ptt-text.recording {
+            color: var(--text-muted);
+            font-weight: 300;
+        }
+
+        /* --- Settings Button & Modal --- */
+        .settings-fab {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease;
+            z-index: 50;
+        }
+
+        .settings-fab:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .modal-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 480px;
+            padding: 32px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            transform: translateY(20px);
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .modal-overlay.open .modal-content {
+            transform: translateY(0);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .modal-header h2 {
+            font-size: 1.5rem;
+            font-weight: 500;
+            color: var(--text-main);
+            margin: 0;
+            font-family: var(--font-serif);
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            border-radius: 8px;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            padding: 0;
+        }
+
+        .icon-btn:hover {
+            background: var(--bg-elevated);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .input-group label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .custom-select,
+        .custom-range {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            outline: none;
+        }
+
+        .custom-range {
+            padding: 0;
+            height: 6px;
+            appearance: none;
+            background: var(--border);
+            border-radius: 5px;
+        }
+
+        .custom-range::-webkit-slider-thumb {
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        .btn-danger {
+            background: transparent;
+            color: var(--error);
+            border: 1px solid var(--error);
+            padding: 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-family: var(--font-ui);
+            font-weight: 500;
+            transition: all 0.2s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .btn-danger:hover {
+            background: rgba(217, 83, 79, 0.1);
+        }
+
+        .panel-title {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            margin-top: 10px;
+        }
+
+        .panel-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* --- Smooth Transition Animations --- */
+        .fade-out {
+            animation: fadeOut 0.5s ease forwards;
+            pointer-events: none;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease forwards;
+        }
+
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            to {
+                opacity: 0;
+                transform: translateY(-15px);
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(15px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Onboarding Screen -->
+    <div id="onboarding-screen">
+        <h1 class="brand-title">E-Money AI</h1>
+        <p class="brand-subtitle">Voice-to-Voice AI demo that runs entirely in your browser. 4 GB of VRAM/RAM required.
+        </p>
+
+        <button id="btn-allow-mic" class="btn-primary">1. Allow Microphone Access</button>
+
+        <button id="btn-init-models" class="btn-primary" disabled>2. Download & Initialize Models</button>
+        
+        <!-- ADDED COMPATIBILITY TOGGLE -->
+        <div
+            style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px; width: 100%; justify-content: center;">
+            <input type="checkbox" id="compat-mode"
+                style="width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;">
+            <label for="compat-mode"
+                style="font-size: 0.95rem; color: var(--text-muted); cursor: pointer;">Compatibility Mode (Use fp16
+                instead of q4f16)</label>
+        </div>
+
+        <div class="console-container">
+            <div class="console-header">Log</div>
+            <div id="console-body" class="console-body">
+                > E-Money AI v0.1.0-alpha.1 by E-Money
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Visualizer UI -->
+    <div id="main-screen">
+        <div class="visualizer-wrapper">
+            <div id="visualizer-circle"></div>
+        </div>
+        <div id="ptt-label" class="ptt-text">Hold 'P' to talk</div>
+    </div>
+
+    <!-- Settings FAB -->
+    <button id="settings-fab" class="settings-fab" style="display: none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+            </path>
+        </svg>
+    </button>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button id="close-settings-btn" class="icon-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="input-group">
+                <label for="extVoiceSelect">TTS Voice</label>
+                <select id="extVoiceSelect" class="custom-select">
+                    <option value="af_heart">af_heart (American Female)</option>
+                    <option value="af_alloy">af_alloy (American Female)</option>
+                    <option value="af_aoede">af_aoede (American Female)</option>
+                    <option value="af_bella">af_bella (American Female)</option>
+                    <option value="af_jessica">af_jessica (American Female)</option>
+                    <option value="af_kore">af_kore (American Female)</option>
+                    <option value="af_nicole">af_nicole (American Female)</option>
+                    <option value="af_nova">af_nova (American Female)</option>
+                    <option value="af_river">af_river (American Female)</option>
+                    <option value="af_sarah">af_sarah (American Female)</option>
+                    <option value="af_sky">af_sky (American Female)</option>
+                    <option value="am_adam">am_adam (American Male)</option>
+                    <option value="am_echo">am_echo (American Male)</option>
+                    <option value="am_eric">am_eric (American Male)</option>
+                    <option value="am_fenrir">am_fenrir (American Male)</option>
+                    <option value="am_liam">am_liam (American Male)</option>
+                    <option value="am_michael">am_michael (American Male)</option>
+                    <option value="am_onyx" selected>am_onyx (American Male)</option>
+                    <option value="am_puck">am_puck (American Male)</option>
+                    <option value="am_santa">am_santa (American Male)</option>
+                    <option value="bf_alice">bf_alice (British Female)</option>
+                    <option value="bf_emma">bf_emma (British Female)</option>
+                    <option value="bf_isabella">bf_isabella (British Female)</option>
+                    <option value="bf_lily">bf_lily (British Female)</option>
+                    <option value="bm_daniel">bm_daniel (British Male)</option>
+                    <option value="bm_fable">bm_fable (British Male)</option>
+                    <option value="bm_george">bm_george (British Male)</option>
+                    <option value="bm_lewis">bm_lewis (British Male)</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label for="extSpeedSelect">Speech Speed (<span id="extSpeedValue">1.3</span>x)</label>
+                <input type="range" id="extSpeedSelect" class="custom-range" min="0.5" max="2.0" step="0.1" value="1.3">
+            </div>
+
+            <div class="input-group">
+                <label for="extVolumeSelect">Volume (<span id="extVolumeValue">100</span>%)</label>
+                <input type="range" id="extVolumeSelect" class="custom-range" min="0" max="1" step="0.01" value="1.0">
+            </div>
+
+            <div class="panel-title">Appearance</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="font-size: 0.9rem; color: var(--text-muted);">Toggle Light/Dark Theme</span>
+                <button id="theme-toggle-btn" class="icon-btn">
+                    <svg id="theme-icon-light" style="display: none;" width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5" />
+                        <line x1="12" y1="1" x2="12" y2="3" />
+                        <line x1="12" y1="21" x2="12" y2="23" />
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                        <line x1="1" y1="12" x2="3" y2="12" />
+                        <line x1="21" y1="12" x2="23" y2="12" />
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                    </svg>
+                    <svg id="theme-icon-dark" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="panel-title">Storage</div>
+            <button id="btn-delete-models" class="btn-danger">Delete Downloaded Models</button>
+        </div>
+    </div>
+
+
+    <!-- HIDDEN ORIGINAL UI Elements required to prevent breaking original logic bindings -->
+    <div id="hidden-original-ui">
+        <div class="status-box">
+            <span id="status"></span>
+            <span id="micStatus"></span>
+        </div>
+        <div>
+            <select id="voiceSelect"></select>
+            <input type="range" id="speedSelect">
+            <span id="speedValue">1.3</span>
+            <button id="loadBtn">Load Models</button>
+        </div>
+        <div id="chatHistoryContainer"></div>
+        <div class="input-area">
+            <textarea id="userInput"></textarea>
+            <button id="sendBtn"></button>
+        </div>
+        <audio id="audioPlayer" controls></audio>
+    </div>
+
+
+    <!-- Web Worker Logic -->
+    <script id="worker-code" type="javascript/worker">
+        let tokenizer, model, tts, TextStreamer;
+        let isGenerating = false;
+        let isInterrupted = false;
+        
+        let chatHistory = [
+            { role: "system", content: "You are E-Money AI, an AI copmanion running in someone's browser. Your name is E-Money AI. If the user gets mad at you, remind them that you are just a tiny model. Provide conversational responses suitable for voice, no longer than 3 sentences. Do not use any fancy formatting, only output words and basic punctuation. Do not use exclamation or question marks, only use periods." }
+        ];
+
+        self.onmessage = async (e) => {
+            const { type, payload } = e.data;
+            
+            if (type === 'interrupt') {
+                isInterrupted = true;
+                return;
+            }
+
+            if (type === 'load') {
+                try {
+                    self.postMessage({ type: 'status', message: 'Loading libraries...' });
+                    
+                    const transformers = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.0.0-next.6");
+                    const kokoro = await import("https://cdn.jsdelivr.net/npm/kokoro-js/+esm");
+
+                    const llm_model_id = "LiquidAI/LFM2.5-1.2B-Instruct-ONNX";
+                    const tts_model_id = "onnx-community/Kokoro-82M-ONNX";
+
+                    // Progress callback injection to send to main UI console
+                    const progress_callback = (info) => self.postMessage({ type: 'progress', info });
+
+                    self.postMessage({ type: 'status', message: 'Loading LFM2.5 Tokenizer...' });
+                    tokenizer = await transformers.AutoTokenizer.from_pretrained(llm_model_id, { progress_callback });
+                    
+                    const isCompatMode = payload?.compatMode || false;
+                    const llmDtype = isCompatMode ? "fp16" : "q4f16";
+
+                    self.postMessage({ type: 'status', message: `Loading LFM2.5-1.2B LLM model weights (${llmDtype})...` });
+                    model = await transformers.AutoModelForCausalLM.from_pretrained(llm_model_id, {
+                        dtype: llmDtype,
+                        device: "webgpu",
+                        progress_callback
+                });
+                    
+                    self.postMessage({ type: 'status', message: 'Loading Kokoro TTS model weights...' });
+                    tts = await kokoro.KokoroTTS.from_pretrained(tts_model_id, {
+                        dtype: "fp32",
+                        device: "webgpu",
+                        progress_callback
+                    });
+                    
+                    TextStreamer = transformers.TextStreamer;
+
+                    self.postMessage({ type: 'status', message: 'Warming up models...' });
+                    
+                    const warmupVoice = payload?.voice || "am_onyx";
+                    const warmupSpeed = payload?.speed || 1.3;
+                    await tts.generate("Hello.", { voice: warmupVoice, speed: warmupSpeed });
+                    
+                    const warmupInputs = await tokenizer("Internal warmup signal.");
+                    await model.generate({ 
+                        ...warmupInputs, 
+                        max_new_tokens: 1 
+                    });
+
+                    self.postMessage({ type: 'status', message: 'Models loaded successfully! Ready for inference.' });
+                    self.postMessage({ type: 'ready' });
+                } catch (error) {
+                    self.postMessage({ type: 'error', message: error.message });
+                }
+            } 
+            else if (type === 'generate') {
+                isGenerating = true;
+                isInterrupted = false; 
+                try {
+                    const { text, voice, speed } = payload;
+                    const selectedVoice = voice || "am_onyx";
+                    const selectedSpeed = speed || 1.3;
+                    
+                    chatHistory.push({ role: "user", content: text });
+                    
+                    const customTemplate = "<|startoftext|>{% for message in messages %}<|im_start|>{{ message['role'] }}\n{{ message['content'] }}<|im_end|>\n{% endfor %}{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}";
+
+                    const inputs = tokenizer.apply_chat_template(chatHistory, { 
+                        chat_template: customTemplate,
+                        add_generation_prompt: true,
+                        return_dict: true
+                    });
+
+                    let sentenceBuffer = "";
+                    let fullAssistantResponse = "";
+                    let ttsPromiseChain = Promise.resolve();
+
+                    const processSentence = async (textChunk) => {
+                        if (isInterrupted) return; 
+                        const trimmed = textChunk.trim();
+                        if (!trimmed) return;
+                        
+                        try {
+                            const audioData = await tts.generate(trimmed, { voice: selectedVoice, speed: selectedSpeed });
+                            if (isInterrupted) return; 
+                            
+                            const pcmData = audioData.audio || audioData.data || audioData;
+                            const sampleRate = audioData.sampling_rate || 24000;
+                            const float32Data = pcmData instanceof Float32Array ? pcmData : Float32Array.from(pcmData);
+                            
+                            self.postMessage({ 
+                                type: 'audio', 
+                                pcmData: float32Data, 
+                                sampleRate 
+                            });
+                        } catch (err) {
+                            console.error("TTS generation error:", err);
+                        }
+                    };
+
+                    const streamer = new TextStreamer(tokenizer, {
+                        skip_prompt: true,
+                        skip_special_tokens: true,
+                        callback_function: (token_text) => {
+                            if (isInterrupted) throw new Error("INTERRUPTED");
+                            
+                            self.postMessage({ type: 'token', text: token_text });
+                            
+                            sentenceBuffer += token_text;
+                            fullAssistantResponse += token_text;
+                            
+                            let match;
+                            while ((match = sentenceBuffer.match(/(.*?(?:[.!?]+["']*\s+|\n+))(.*)/s)) !== null) {
+                                const completeSentence = match[1];
+                                sentenceBuffer = match[2] || "";
+                                ttsPromiseChain = ttsPromiseChain.then(() => processSentence(completeSentence));
+                            }
+                        }
+                    });
+
+                    try {
+                        await model.generate({
+                            ...inputs,
+                            max_new_tokens: 256,
+                            do_sample: true,
+                            temperature: 0.2,
+                            top_k: 50,
+                            repetition_penalty: 1.05,
+                            streamer: streamer
+                        });
+                    } catch (err) {
+                        if (err.message !== "INTERRUPTED") throw err;
+                    }
+
+                    if (sentenceBuffer.trim().length > 0 && !isInterrupted) {
+                        ttsPromiseChain = ttsPromiseChain.then(() => processSentence(sentenceBuffer));
+                    }
+
+                    await ttsPromiseChain;
+                    
+                    if (fullAssistantResponse.trim()) {
+                        chatHistory.push({ role: "assistant", content: fullAssistantResponse.trim() });
+                    }
+
+                    self.postMessage({ type: isInterrupted ? 'done_interrupted' : 'done' });
+                } catch (error) {
+                    self.postMessage({ type: 'error', message: error.message });
+                } finally {
+                    isGenerating = false;
+                }
+            }
+        };
+    </script>
+
+    <!-- Main Application Script -->
+    <script type="module">
+        import { fromHub } from 'https://cdn.jsdelivr.net/npm/parakeet.js/+esm';
+
+        // Worker Setup
+        const workerScript = document.getElementById('worker-code').textContent;
+        const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
+        const worker = new Worker(URL.createObjectURL(workerBlob));
+
+        // Original DOM references (kept alive but hidden to avoid null ref errors)
+        const btnInitModels = document.getElementById("btn-init-models");
+        const compatModeCheckbox = document.getElementById("compat-mode"); // <-- Add this line
+        const statusEl = document.getElementById("status");
+        const micStatusEl = document.getElementById("micStatus");
+        const voiceSelect = document.getElementById("voiceSelect");
+        const speedSelect = document.getElementById("speedSelect");
+        const speedValue = document.getElementById("speedValue");
+        const loadBtn = document.getElementById("loadBtn");
+        const chatHistoryContainer = document.getElementById("chatHistoryContainer");
+        const userInput = document.getElementById("userInput");
+        const sendBtn = document.getElementById("sendBtn");
+        const audioPlayer = document.getElementById("audioPlayer");
+
+        // New UI DOM references
+        const btnAllowMic = document.getElementById("btn-allow-mic");
+        const consoleBody = document.getElementById("console-body");
+        const onboardingScreen = document.getElementById("onboarding-screen");
+        const mainScreen = document.getElementById("main-screen");
+
+        const visualizerCircle = document.getElementById("visualizer-circle");
+        const pttLabel = document.getElementById("ptt-label");
+
+        // Settings Modal References
+        const settingsFab = document.getElementById("settings-fab");
+        const settingsModal = document.getElementById("settings-modal");
+        const closeSettingsBtn = document.getElementById("closeSettingsBtn");
+        const extVoiceSelect = document.getElementById("extVoiceSelect");
+        const extSpeedSelect = document.getElementById("extSpeedSelect");
+        const extSpeedValue = document.getElementById("extSpeedValue");
+        const extVolumeSelect = document.getElementById("extVolumeSelect");
+        const extVolumeValue = document.getElementById("extVolumeValue");
+        const themeToggleBtn = document.getElementById("theme-toggle-btn");
+        const btnDeleteModels = document.getElementById("btn-delete-models");
+
+        // WebAudio API variables for Visualizer
+        let audioCtx;
+        let analyser;
+        let dataArray;
+        let audioSourceNode;
+        let micSourceNode;
+        let isVisualizerRunning = false;
+
+        let audioQueue = [];
+        let isPlaying = false;
+        let currentAssistantSpan = null;
+        let isFirstMessage = true;
+
+        let sttModel = null;
+        let globalMicStream = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let isPKeyDown = false;
+        let isSystemReady = false;
+
+        // Smooth visualizer tracking variables
+        let currentScale = 1;
+        let targetScale = 1;
+        let currentGlow = 40;
+        let targetGlow = 40;
+
+        // --- Theme Management ---
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            const isDark = theme === 'dark';
+            document.getElementById('theme-icon-light').style.display = isDark ? 'inline' : 'none';
+            document.getElementById('theme-icon-dark').style.display = isDark ? 'none' : 'inline';
+        }
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            setTheme(newTheme);
+            localStorage.setItem('theme', newTheme);
+        }
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            if (!localStorage.getItem('theme')) {
+                setTheme(e.matches ? 'dark' : 'light');
+            }
+        });
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+        setTheme(currentTheme);
+        themeToggleBtn.addEventListener('click', toggleTheme);
+
+
+        // --- UI Sync & Settings Bindings ---
+        extSpeedSelect.addEventListener("input", (e) => {
+            extSpeedValue.textContent = e.target.value;
+            speedSelect.value = e.target.value; // Sync with hidden original element
+        });
+        extVolumeSelect.addEventListener("input", (e) => {
+            const vol = parseFloat(e.target.value);
+            extVolumeValue.textContent = Math.round(vol * 100);
+            audioPlayer.volume = vol;
+        });
+        extVoiceSelect.addEventListener("change", (e) => {
+            voiceSelect.value = e.target.value; // Sync with hidden original element
+        });
+
+        settingsFab.addEventListener("click", () => settingsModal.classList.add("open"));
+        document.getElementById("close-settings-btn").addEventListener("click", () => settingsModal.classList.remove("open"));
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) settingsModal.classList.remove('open');
+        });
+
+        btnDeleteModels.addEventListener("click", async () => {
+            if (confirm("Are you sure you want to delete all downloaded models? You will have to redownload them.")) {
+                try {
+                    const keys = await caches.keys();
+                    for (const key of keys) {
+                        await caches.delete(key);
+                    }
+                    alert("Models deleted. The app will now reload.");
+                    location.reload();
+                } catch (e) {
+                    alert("Error clearing cache: " + e.message);
+                }
+            }
+        });
+
+        // --- Console Logger ---
+        function logToConsole(text, isStatus = false) {
+            const div = document.createElement("div");
+            div.style.color = "#ffffff";
+            div.textContent = `> ${text}`;
+            consoleBody.appendChild(div);
+            consoleBody.scrollTop = consoleBody.scrollHeight;
+        }
+
+
+        // --- Audio Visualizer Setup ---
+        function startVisualizerLoop() {
+            if (isVisualizerRunning || !analyser) return;
+            isVisualizerRunning = true;
+            let time = 0;
+
+            function draw() {
+                if (!isVisualizerRunning) return;
+                requestAnimationFrame(draw);
+
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                let maxAmp = 0;
+                
+                // Focus on lower/mid frequencies for speech (usually more expressive visually)
+                const focusLength = Math.min(dataArray.length, 128);
+                for (let i = 0; i < focusLength; i++) {
+                    sum += dataArray[i];
+                    if (dataArray[i] > maxAmp) maxAmp = dataArray[i];
+                }
+                
+                let avg = sum / focusLength;
+                let energy = (avg * 0.7 + maxAmp * 0.3) / 255;
+
+                // Base state vs Audio Reacting state
+                if (energy > 0.05) { 
+                    // Snappy reaction to audio (AI speaking or User recording)
+                    targetScale = 1 + energy * 0.35; 
+                    targetGlow = 40 + energy * 80;
+                } else {
+                    // Idle animations based on class state
+                    if (visualizerCircle.classList.contains("thinking")) {
+                        targetScale = 1 + Math.sin(time * 0.05) * 0.03;
+                        targetGlow = 50 + Math.sin(time * 0.05) * 15;
+                    } else if (visualizerCircle.classList.contains("recording")) {
+                        targetScale = 1.05 + Math.sin(time * 0.1) * 0.02;
+                        targetGlow = 60;
+                    } else {
+                        targetScale = 1;
+                        targetGlow = 40;
+                    }
+                }
+
+                // Smooth Linear Interpolation (Lerp) for buttery animations
+                currentScale += (targetScale - currentScale) * 0.2;
+                currentGlow += (targetGlow - currentGlow) * 0.2;
+
+                // Apply cleanly via CSS variables
+                visualizerCircle.style.setProperty('--viz-scale', currentScale);
+                visualizerCircle.style.setProperty('--viz-glow', currentGlow + 'px');
+
+                time++;
+            }
+            draw();
+        }
+
+        async function initAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256;
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                // Wire up TTS Output to Visualizer
+                audioSourceNode = audioCtx.createMediaElementSource(audioPlayer);
+
+                // Path 1: Send audio to the analyser for visualization
+                audioSourceNode.connect(analyser);
+
+                // Path 2: Send audio to the speakers so you can hear it
+                audioSourceNode.connect(audioCtx.destination);
+
+                startVisualizerLoop();
+            }
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+        }
+
+
+        // --- Onboarding Flow ---
+        btnAllowMic.addEventListener("click", async () => {
+            try {
+                globalMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                logToConsole("Microphone access granted.", true);
+                btnAllowMic.disabled = true;
+                btnAllowMic.textContent = "Microphone Connected";
+                btnInitModels.disabled = false;
+            } catch (err) {
+                logToConsole("Error accessing microphone: " + err.message, true);
+            }
+        });
+
+        btnInitModels.addEventListener("click", async () => {
+            btnInitModels.disabled = true;
+            await initAudioContext(); // Initialize audio context upon user gesture
+
+            logToConsole("Initializing Parakeet STT (FP16)...", true);
+
+            try {
+                sttModel = await fromHub('parakeet-tdt-0.6b-v3', {
+                    revision: 'feat/fp16-canonical-v3',
+                    backend: 'webgpu-hybrid',
+                    encoderQuant: 'fp16',
+                    decoderQuant: 'fp16',
+                    progressCallback: (info) => {
+                        if (typeof info === 'string') logToConsole(`Parakeet: ${info}`);
+                        else if (info.status) logToConsole(`Parakeet: ${info.status} ${info.name || info.file || ''} ${info.progress ? Math.round(info.progress) + '%' : ''}`);
+                    }
+                });
+
+                logToConsole("Parakeet STT Loaded. Booting LFM2.5 LLM & Kokoro TTS...", true);
+                worker.postMessage({
+                    type: 'load',
+                    payload: {
+                        voice: extVoiceSelect.value,
+                        speed: parseFloat(extSpeedSelect.value),
+                        compatMode: compatModeCheckbox.checked // <-- Add this line
+                    }
+                });
+            } catch (err) {
+                logToConsole("STT Load Error: " + err.message, true);
+            }
+        });
+
+
+        // Original Chat Helpers (Kept intact to not break logic flow)
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[tag] || tag));
+        }
+
+        function scrollToBottom() {
+            chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight;
+        }
+
+        function appendUserMessage(text) {
+            if (isFirstMessage) {
+                chatHistoryContainer.innerHTML = "";
+                isFirstMessage = false;
+            }
+            const p = document.createElement("p");
+            p.innerHTML = `<strong>User:</strong> ${escapeHTML(text)}`;
+            chatHistoryContainer.appendChild(p);
+            scrollToBottom();
+        }
+
+        function startAssistantMessage() {
+            if (isFirstMessage) {
+                chatHistoryContainer.innerHTML = "";
+                isFirstMessage = false;
+            }
+            const p = document.createElement("p");
+            p.innerHTML = `<strong>Assistant:</strong> `;
+            const span = document.createElement("span");
+            p.appendChild(span);
+            chatHistoryContainer.appendChild(p);
+            currentAssistantSpan = span;
+            scrollToBottom();
+        }
+
+        function interruptAI() {
+            worker.postMessage({ type: 'interrupt' });
+            audioQueue = [];
+            isPlaying = false;
+            audioPlayer.pause();
+            audioPlayer.removeAttribute('src');
+
+            pttLabel.textContent = "Hold 'P' to talk";
+
+            if (currentAssistantSpan) {
+                currentAssistantSpan.innerHTML += ' <em style="color:#d9534f;">[Interrupted]</em>';
+                currentAssistantSpan = null;
+            }
+            visualizerCircle.classList.remove("thinking");
+        }
+
+        function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isPlaying = false;
+                visualizerCircle.classList.remove("thinking");
+                pttLabel.textContent = "Hold 'P' to talk";
+                return;
+            }
+
+            isPlaying = true;
+            pttLabel.textContent = "Hold 'P' to interrupt";
+            const { pcmData, sampleRate } = audioQueue.shift();
+
+            const wavBlob = createWavBlob(pcmData, sampleRate);
+            const audioUrl = URL.createObjectURL(wavBlob);
+
+            audioPlayer.src = audioUrl;
+
+            audioPlayer.play().catch(e => {
+                console.error("Audio playback error:", e);
+                playNextAudio();
+            });
+
+            audioPlayer.onended = () => {
+                URL.revokeObjectURL(audioUrl);
+                playNextAudio();
+            };
+        }
+
+        // Handle Worker Messages
+        worker.onmessage = (e) => {
+            const { type, message, text, pcmData, sampleRate, info } = e.data;
+
+            if (type === 'progress') {
+                // Display Library Progress dynamically in the console
+                if (info && info.status) {
+                    logToConsole(`Transformers.js: ${info.status} ${info.name || info.file || ''} ${info.progress ? Math.round(info.progress) + '%' : ''}`);
+                }
+            } else if (type === 'status') {
+                logToConsole(message, true);
+            } else if (type === 'ready') {
+                isSystemReady = true;
+                logToConsole("All Models loaded! Ready for inference.", true);
+
+                // Smooth Transition UI to main screen
+                setTimeout(() => {
+                    // 1. Trigger the fade-out animation on the onboarding screen
+                    onboardingScreen.classList.add("fade-out");
+
+                    // 2. Wait for the fade-out to complete (500ms) before changing displays
+                    setTimeout(() => {
+                        onboardingScreen.style.display = "none";
+
+                        // 3. Unhide the new screens
+                        mainScreen.style.display = "flex";
+                        settingsFab.style.display = "flex";
+
+                        // 4. Trigger the fade-in animation on the new elements
+                        mainScreen.classList.add("fade-in");
+                        settingsFab.classList.add("fade-in");
+                    }, 500);
+                }, 1000);
+            } else if (type === 'error') {
+                logToConsole("Error: " + message, true);
+                console.error(message);
+            } else if (type === 'token') {
+                if (currentAssistantSpan) {
+                    currentAssistantSpan.textContent += text;
+                    scrollToBottom();
+                }
+            } else if (type === 'audio') {
+                audioQueue.push({ pcmData, sampleRate });
+                if (!isPlaying) {
+                    visualizerCircle.classList.add("thinking");
+                    playNextAudio();
+                }
+            } else if (type === 'done' || type === 'done_interrupted') {
+                currentAssistantSpan = null;
+                // Leave 'thinking' class until audio finishes in playNextAudio()
+            }
+        };
+
+        // --- Push-to-Talk Logic ---
+        window.addEventListener('keydown', async (e) => {
+            const activeTag = document.activeElement ? document.activeElement.tagName : '';
+            if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+
+            if (e.key.toLowerCase() === 'p' && isSystemReady) {
+                if (isPKeyDown) return;
+                isPKeyDown = true;
+
+                interruptAI();
+
+                visualizerCircle.classList.add("recording");
+                pttLabel.classList.add("recording");
+                pttLabel.textContent = "Listening...";
+
+                if (!audioCtx) await initAudioContext();
+
+                // Connect Mic to Analyzer for pulsing while talking
+                if (!micSourceNode && globalMicStream) {
+                    micSourceNode = audioCtx.createMediaStreamSource(globalMicStream);
+                    micSourceNode.connect(analyser); // Do not connect to destination (prevents feedback)
+                }
+
+                try {
+                    mediaRecorder = new MediaRecorder(globalMicStream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = ev => audioChunks.push(ev.data);
+                    mediaRecorder.start();
+                    isRecording = true;
+                } catch (err) {
+                    console.error("Mic error", err);
+                }
+            }
+        });
+
+        window.addEventListener('keyup', async (e) => {
+            const activeTag = document.activeElement ? document.activeElement.tagName : '';
+            if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+
+            if (e.key.toLowerCase() === 'p' && isSystemReady) {
+                isPKeyDown = false;
+
+                visualizerCircle.classList.remove("recording");
+                pttLabel.classList.remove("recording");
+                pttLabel.textContent = "Transcribing...";
+
+                // Disconnect Mic from Analyzer so it doesn't pulse ambient noise
+                if (micSourceNode) {
+                    micSourceNode.disconnect(analyser);
+                    micSourceNode = null;
+                }
+
+                if (isRecording && mediaRecorder) {
+                    isRecording = false;
+
+                    mediaRecorder.onstop = async () => {
+                        try {
+                            const blob = new Blob(audioChunks);
+                            const arrayBuffer = await blob.arrayBuffer();
+                            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                            const pcmData = audioBuffer.getChannelData(0);
+
+                            const result = await sttModel.transcribe(pcmData, 16000, {
+                                returnTimestamps: false,
+                                returnConfidences: false,
+                            });
+
+                            if (result && result.utterance_text.trim()) {
+                                userInput.value = result.utterance_text.trim();
+                                handleSend();
+                            }
+
+                            pttLabel.textContent = "Thinking...";
+                        } catch (err) {
+                            console.error("Transcribe error", err);
+                            pttLabel.textContent = "Hold 'P' to talk";
+                        }
+                    };
+                    mediaRecorder.stop();
+                }
+            }
+        });
+
+        function handleSend() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            userInput.value = "";
+            interruptAI();
+
+            appendUserMessage(text);
+            startAssistantMessage();
+
+            visualizerCircle.classList.add("thinking");
+
+            worker.postMessage({
+                type: 'generate',
+                payload: {
+                    text: text,
+                    voice: extVoiceSelect.value,
+                    speed: parseFloat(extSpeedSelect.value)
+                }
+            });
+        }
+
+        // --- WAV Serialization Helpers ---
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+        function floatTo16BitPCM(output, offset, input) {
+            for (let i = 0; i < input.length; i++, offset += 2) {
+                let s = Math.max(-1, Math.min(1, input[i]));
+                output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            }
+        }
+        function createWavBlob(samples, sampleRate) {
+            const buffer = new ArrayBuffer(44 + samples.length * 2);
+            const view = new DataView(buffer);
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + samples.length * 2, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, samples.length * 2, true);
+
+            floatTo16BitPCM(view, 44, samples);
+            return new Blob([view], { type: 'audio/wav' });
+        }
+    </script>
+</body>
+
+</html>
