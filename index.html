@@ -12,75 +12,6 @@
             document.documentElement.setAttribute('data-theme', theme);
         })();
     </script>
-    
-    <!-- ADDED: Interceptors to calculate and catch download progress -->
-    <script>
-        // Intercept Fetch API to calculate progress of ONNX/BIN files
-        const originalFetch = window.fetch;
-        window.fetch = async function(...args) {
-            const response = await originalFetch.apply(this, args);
-            if (!response.ok) return response;
-
-            try {
-                const url = typeof args[0] === 'string' ? args[0] : (args[0] instanceof Request ? args[0].url : '');
-                if ((url.includes('huggingface.co') || url.match(/\.(onnx|bin|wasm|json)$/i)) && response.body) {
-                    const contentLength = response.headers.get('content-length');
-                    const total = contentLength ? parseInt(contentLength, 10) : 0;
-                    
-                    if (total > 0) {
-                        let loaded = 0;
-                        const filenameMatch = url.match(/\/([^\/?#]+)(?:[?#]|$)/);
-                        const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : 'file';
-
-                        const reader = response.body.getReader();
-                        const stream = new ReadableStream({
-                            async start(controller) {
-                                while (true) {
-                                    try {
-                                        const { done, value } = await reader.read();
-                                        if (done) {
-                                            controller.close();
-                                            break;
-                                        }
-                                        loaded += value.length;
-                                        window.dispatchEvent(new CustomEvent('fetch-progress', {
-                                            detail: { file: filename, loaded, total }
-                                        }));
-                                        controller.enqueue(value);
-                                    } catch (e) {
-                                        controller.error(e);
-                                        break;
-                                    }
-                                }
-                            }
-                        });
-
-                        const newResponse = new Response(stream, {
-                            status: response.status,
-                            statusText: response.statusText,
-                            headers: response.headers
-                        });
-                        Object.defineProperty(newResponse, 'url', { value: response.url });
-                        return newResponse;
-                    }
-                }
-            } catch(e) {}
-            return response;
-        };
-
-        // Intercept Console API to catch Parakeet's internal logs
-        const originalLog = console.log;
-        console.log = function(...args) {
-            originalLog.apply(console, args);
-            try {
-                const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-                if (msg.includes('[Hub]') || msg.includes('Downloading')) {
-                    window.dispatchEvent(new CustomEvent('intercepted-log', { detail: msg }));
-                }
-            } catch(e) {}
-        };
-    </script>
-
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&display=swap');
 
@@ -969,60 +900,13 @@
         });
 
         // --- Console Logger ---
-        let lastConsoleLogMsg = "";
-        let lastConsoleLogDiv = null;
-
         function logToConsole(text, isStatus = false) {
-            const cleanText = text.replace(/\x1B\[\d+m/g, '').replace(/%c/g, '');
-            
-            if (cleanText.includes('Downloading')) {
-                const baseMsgMatch = cleanText.match(/^(.*Downloading[^:]*:?)/);
-                if (baseMsgMatch && lastConsoleLogDiv && lastConsoleLogMsg.startsWith(baseMsgMatch[1])) {
-                    lastConsoleLogDiv.textContent = `> ${cleanText}`;
-                    lastConsoleLogMsg = cleanText;
-                    return;
-                }
-            }
-
             const div = document.createElement("div");
             div.style.color = "#ffffff";
-            div.textContent = `> ${cleanText}`;
+            div.textContent = `> ${text}`;
             consoleBody.appendChild(div);
             consoleBody.scrollTop = consoleBody.scrollHeight;
-            
-            lastConsoleLogMsg = cleanText;
-            lastConsoleLogDiv = div;
         }
-
-        // Connect intercepted console logs and fetch streams
-        window.addEventListener('intercepted-log', (e) => logToConsole(e.detail));
-
-        const fetchProgressNodes = {};
-        window.addEventListener('fetch-progress', (e) => {
-            const { file, loaded, total } = e.detail;
-            const id = `fetch-${file}`;
-            const percent = ((loaded / total) * 100).toFixed(2);
-            const loadedMB = (loaded / 1024 / 1024).toFixed(2);
-            const totalMB = (total / 1024 / 1024).toFixed(2);
-            
-            const msg = `[Fetch] Downloading ${file}: ${percent}% (${loadedMB}MB / ${totalMB}MB)`;
-            
-            if (!fetchProgressNodes[id]) {
-                const div = document.createElement("div");
-                div.style.color = "#888888";
-                consoleBody.appendChild(div);
-                fetchProgressNodes[id] = div;
-            }
-            
-            fetchProgressNodes[id].textContent = `> ${msg}`;
-            
-            if (loaded >= total) {
-                fetchProgressNodes[id].style.color = "#ffffff";
-                delete fetchProgressNodes[id];
-            }
-            
-            consoleBody.scrollTop = consoleBody.scrollHeight;
-        });
 
         const progressNodes = {};
         function logProgress(source, info) {
@@ -1049,22 +933,8 @@
             } else if (info.status === 'ready') {
                 logToConsole(`[${source}] Model asset ready: ${file || name}`);
             } else if (info.status === 'progress') {
-                let msg = `[${source}] Downloading ${file} from ${name}`;
+                let msg = `[${source}] Downloading ${file} from ${name}: ${info.progress ? info.progress.toFixed(2) + '%' : ''} ${info.loaded ? '(' + info.loaded + '/' + info.total + ' bytes)' : ''}`;
                 
-                let percentStr = '';
-                if (typeof info.progress === 'number') {
-                    const p = info.progress <= 1 && info.progress > 0 ? info.progress * 100 : info.progress;
-                    percentStr = p.toFixed(2) + '%';
-                } else if (info.loaded && info.total) {
-                    percentStr = ((info.loaded / info.total) * 100).toFixed(2) + '%';
-                }
-
-                if (percentStr) msg += `: ${percentStr}`;
-                
-                if (info.loaded && info.total) {
-                    msg += ` (${(info.loaded / 1024 / 1024).toFixed(2)}MB / ${(info.total / 1024 / 1024).toFixed(2)}MB)`;
-                }
-
                 if (!progressNodes[id]) {
                     const div = document.createElement("div");
                     div.style.color = "#888888"; 
@@ -1073,6 +943,7 @@
                 }
                 progressNodes[id].textContent = `> ${msg}`;
                 
+                // Keep scrolled to bottom
                 consoleBody.scrollTop = consoleBody.scrollHeight;
             } else {
                 logToConsole(`[${source}] ${JSON.stringify(info)}`);
