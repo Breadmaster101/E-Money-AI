@@ -774,6 +774,82 @@
     <script type="module">
         import { fromHub } from 'https://cdn.jsdelivr.net/npm/parakeet.js/+esm';
 
+        // --- GLOBAL HOOKS TO EXTRACT HIDDEN PARAKEET PROGRESS ---
+        
+        // 1. Intercept console.log to catch Parakeet's hardcoded internal logs
+        const originalConsoleLog = console.log;
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            if (args.length > 0 && typeof args[0] === 'string') {
+                const msg = args[0];
+                if (msg.includes('[Hub]') || msg.includes('[Parakeet]')) {
+                    logToConsole(`[Parakeet Engine] ${msg.replace('[Hub] ', '')}`);
+                }
+            }
+        };
+
+        // 2. Intercept window.fetch to generate real progress events that parakeet.js lacks
+        const originalFetch = window.fetch;
+        window.fetch = async (...args) => {
+            const reqUrl = typeof args[0] === 'string' ? args[0] : (args[0] instanceof Request ? args[0].url : '');
+            const response = await originalFetch(...args);
+            
+            // Target Parakeet model files fetching from Hugging Face Hub (or ysdede's repo)
+            if (reqUrl.includes('ysdede') || reqUrl.includes('parakeet') || reqUrl.endsWith('.onnx')) {
+                if (!response.ok || !response.body) return response;
+                
+                // Get accurate file size for the calculation
+                const sizeStr = response.headers.get('content-length') || response.headers.get('x-linked-size');
+                if (!sizeStr) return response; 
+
+                const total = parseInt(sizeStr, 10);
+                let loaded = 0;
+                let lastUpdate = 0;
+                const filename = reqUrl.split('/').pop().split('?')[0] || 'model_file';
+
+                const stream = new ReadableStream({
+                    async start(controller) {
+                        const reader = response.body.getReader();
+                        try {
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) {
+                                    logProgress('Parakeet STT', { status: 'done', file: filename, name: 'Hugging Face Hub' });
+                                    controller.close();
+                                    break;
+                                }
+                                loaded += value.byteLength;
+                                controller.enqueue(value);
+                                
+                                // Throttle UI DOM updates to ~5 times per second to prevent freezing
+                                const now = performance.now();
+                                if (now - lastUpdate > 200) {
+                                    const progress = (loaded / total) * 100;
+                                    logProgress('Parakeet STT', { status: 'progress', file: filename, name: 'Hugging Face Hub', progress, loaded, total });
+                                    lastUpdate = now;
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Fetch stream error", e);
+                            controller.error(e);
+                        }
+                    }
+                });
+
+                // Return a proxy response that feeds the intercepted stream directly into Parakeet
+                const newRes = new Response(stream, {
+                    headers: response.headers,
+                    status: response.status,
+                    statusText: response.statusText
+                });
+                Object.defineProperty(newRes, 'url', { value: response.url });
+                return newRes;
+            }
+            return response;
+        };
+
+        // --- End Hooks ---
+
         // Worker Setup
         const workerScript = document.getElementById('worker-code').textContent;
         const workerBlob = new Blob([workerScript], { type: 'application/javascript' });
@@ -781,7 +857,7 @@
 
         // Original DOM references (kept alive but hidden to avoid null ref errors)
         const btnInitModels = document.getElementById("btn-init-models");
-        const compatModeCheckbox = document.getElementById("compat-mode"); // <-- Add this line
+        const compatModeCheckbox = document.getElementById("compat-mode"); 
         const statusEl = document.getElementById("status");
         const micStatusEl = document.getElementById("micStatus");
         const voiceSelect = document.getElementById("voiceSelect");
@@ -933,11 +1009,11 @@
             } else if (info.status === 'ready') {
                 logToConsole(`[${source}] Model asset ready: ${file || name}`);
             } else if (info.status === 'progress') {
-                let msg = `[${source}] Downloading ${file} from ${name}: ${info.progress ? info.progress.toFixed(2) + '%' : ''} ${info.loaded ? '(' + info.loaded + '/' + info.total + ' bytes)' : ''}`;
+                let msg = `[${source}] Downloading ${file} from ${name}: ${info.progress !== undefined ? info.progress.toFixed(2) + '%' : ''} ${info.loaded !== undefined ? '(' + info.loaded + '/' + info.total + ' bytes)' : ''}`;
                 
                 if (!progressNodes[id]) {
                     const div = document.createElement("div");
-                    div.style.color = "#888888"; 
+                    div.style.color = "#ffffff"; 
                     consoleBody.appendChild(div);
                     progressNodes[id] = div;
                 }
@@ -1058,10 +1134,8 @@
                     revision: 'feat/fp16-canonical-v3',
                     backend: 'webgpu-hybrid',
                     encoderQuant: 'fp16',
-                    decoderQuant: 'fp16',
-                    progressCallback: (info) => {
-                        logProgress('Parakeet Hub', info);
-                    }
+                    decoderQuant: 'fp16'
+                    // We removed the empty progress callbacks here since our custom network wrapper handles it natively now!
                 });
 
                 logToConsole("[Main] Parakeet WebGPU inference engine initialized. Posting 'load' signal to Worker thread...", true);
@@ -1070,7 +1144,7 @@
                     payload: {
                         voice: extVoiceSelect.value,
                         speed: parseFloat(extSpeedSelect.value),
-                        compatMode: compatModeCheckbox.checked // <-- Add this line
+                        compatMode: compatModeCheckbox.checked 
                     }
                 });
             } catch (err) {
