@@ -466,7 +466,7 @@
         <div class="console-container">
             <div class="console-header">Log</div>
             <div id="console-body" class="console-body">
-                > E-Money AI v0.1.0-alpha.1 by E-Money
+                > E-Money AI v0.1.0-alpha.2 by E-Money
             </div>
         </div>
     </div>
@@ -619,9 +619,10 @@
 
             if (type === 'load') {
                 try {
-                    self.postMessage({ type: 'status', message: 'Loading libraries...' });
-                    
+                    self.postMessage({ type: 'status', message: '[Worker] Executing load payload. Importing ESM modules...' });
+                    self.postMessage({ type: 'status', message: '[Worker] Importing https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.0.0-next.6' });
                     const transformers = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.0.0-next.6");
+                    self.postMessage({ type: 'status', message: '[Worker] Importing https://cdn.jsdelivr.net/npm/kokoro-js/+esm' });
                     const kokoro = await import("https://cdn.jsdelivr.net/npm/kokoro-js/+esm");
 
                     const llm_model_id = "LiquidAI/LFM2.5-1.2B-Instruct-ONNX";
@@ -630,20 +631,20 @@
                     // Progress callback injection to send to main UI console
                     const progress_callback = (info) => self.postMessage({ type: 'progress', info });
 
-                    self.postMessage({ type: 'status', message: 'Loading LFM2.5 Tokenizer...' });
+                    self.postMessage({ type: 'status', message: `[Worker] Initializing AutoTokenizer from pretrained: ${llm_model_id}` });
                     tokenizer = await transformers.AutoTokenizer.from_pretrained(llm_model_id, { progress_callback });
                     
                     const isCompatMode = payload?.compatMode || false;
                     const llmDtype = isCompatMode ? "fp16" : "q4f16";
 
-                    self.postMessage({ type: 'status', message: `Loading LFM2.5-1.2B LLM model weights (${llmDtype})...` });
+                    self.postMessage({ type: 'status', message: `[Worker] Initializing AutoModelForCausalLM from pretrained: ${llm_model_id} { dtype: "${llmDtype}", device: "webgpu" }` });
                     model = await transformers.AutoModelForCausalLM.from_pretrained(llm_model_id, {
                         dtype: llmDtype,
                         device: "webgpu",
                         progress_callback
                 });
                     
-                    self.postMessage({ type: 'status', message: 'Loading Kokoro TTS model weights...' });
+                    self.postMessage({ type: 'status', message: `[Worker] Initializing KokoroTTS from pretrained: ${tts_model_id} { dtype: "fp32", device: "webgpu" }` });
                     tts = await kokoro.KokoroTTS.from_pretrained(tts_model_id, {
                         dtype: "fp32",
                         device: "webgpu",
@@ -652,7 +653,7 @@
                     
                     TextStreamer = transformers.TextStreamer;
 
-                    self.postMessage({ type: 'status', message: 'Warming up models...' });
+                    self.postMessage({ type: 'status', message: '[Worker] Executing model warmup cycles on WebGPU backend...' });
                     
                     const warmupVoice = payload?.voice || "am_onyx";
                     const warmupSpeed = payload?.speed || 1.3;
@@ -664,7 +665,7 @@
                         max_new_tokens: 1 
                     });
 
-                    self.postMessage({ type: 'status', message: 'Models loaded successfully! Ready for inference.' });
+                    self.postMessage({ type: 'status', message: '[Worker] Worker initialization complete. WebGPU memory allocated.' });
                     self.postMessage({ type: 'ready' });
                 } catch (error) {
                     self.postMessage({ type: 'error', message: error.message });
@@ -907,6 +908,47 @@
             consoleBody.scrollTop = consoleBody.scrollHeight;
         }
 
+        const progressNodes = {};
+        function logProgress(source, info) {
+            if (!info) return;
+            if (typeof info === 'string') {
+                logToConsole(`[${source}] ${info}`);
+                return;
+            }
+            
+            const file = info.file || 'unknown_file';
+            const name = info.name || 'unknown_model';
+            const id = `${source}-${name}-${file}`;
+
+            if (info.status === 'initiate') {
+                logToConsole(`[${source}] Initiating resolution for ${file} from repository ${name}...`);
+            } else if (info.status === 'download') {
+                logToConsole(`[${source}] Downloading ${file} from ${name}...`);
+            } else if (info.status === 'done') {
+                logToConsole(`[${source}] Completed download: ${file} (${name})`);
+                if (progressNodes[id]) {
+                    progressNodes[id].style.color = "#ffffff";
+                    delete progressNodes[id];
+                }
+            } else if (info.status === 'ready') {
+                logToConsole(`[${source}] Model asset ready: ${file || name}`);
+            } else if (info.status === 'progress') {
+                let msg = `[${source}] Downloading ${file} from ${name}: ${info.progress ? info.progress.toFixed(2) + '%' : ''} ${info.loaded ? '(' + info.loaded + '/' + info.total + ' bytes)' : ''}`;
+                
+                if (!progressNodes[id]) {
+                    const div = document.createElement("div");
+                    div.style.color = "#888888"; 
+                    consoleBody.appendChild(div);
+                    progressNodes[id] = div;
+                }
+                progressNodes[id].textContent = `> ${msg}`;
+                
+                // Keep scrolled to bottom
+                consoleBody.scrollTop = consoleBody.scrollHeight;
+            } else {
+                logToConsole(`[${source}] ${JSON.stringify(info)}`);
+            }
+        }
 
         // --- Audio Visualizer Setup ---
         function startVisualizerLoop() {
@@ -990,12 +1032,12 @@
         btnAllowMic.addEventListener("click", async () => {
             try {
                 globalMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                logToConsole("Microphone access granted.", true);
+                logToConsole("[MediaDevices] getUserMedia({ audio: true }) constraints satisfied. Microphone stream acquired.", true);
                 btnAllowMic.disabled = true;
                 btnAllowMic.textContent = "Microphone Connected";
                 btnInitModels.disabled = false;
             } catch (err) {
-                logToConsole("Error accessing microphone: " + err.message, true);
+                logToConsole("[MediaDevices] Error acquiring microphone stream: " + err.message, true);
             }
         });
 
@@ -1003,7 +1045,8 @@
             btnInitModels.disabled = true;
             await initAudioContext(); // Initialize audio context upon user gesture
 
-            logToConsole("Initializing Parakeet STT (FP16)...", true);
+            logToConsole("[System] Requesting Parakeet STT initialization (FP16)...");
+            logToConsole("[System] Config: Revision: 'feat/fp16-canonical-v3', Backend: 'webgpu-hybrid', Encoder/Decoder: 'fp16'");
 
             try {
                 sttModel = await fromHub('parakeet-tdt-0.6b-v3', {
@@ -1012,12 +1055,11 @@
                     encoderQuant: 'fp16',
                     decoderQuant: 'fp16',
                     progressCallback: (info) => {
-                        if (typeof info === 'string') logToConsole(`Parakeet: ${info}`);
-                        else if (info.status) logToConsole(`Parakeet: ${info.status} ${info.name || info.file || ''} ${info.progress ? Math.round(info.progress) + '%' : ''}`);
+                        logProgress('Parakeet Hub', info);
                     }
                 });
 
-                logToConsole("Parakeet STT Loaded. Booting LFM2.5 LLM & Kokoro TTS...", true);
+                logToConsole("[Main] Parakeet WebGPU inference engine initialized. Posting 'load' signal to Worker thread...", true);
                 worker.postMessage({
                     type: 'load',
                     payload: {
@@ -1027,7 +1069,7 @@
                     }
                 });
             } catch (err) {
-                logToConsole("STT Load Error: " + err.message, true);
+                logToConsole("[System] Exception in fromHub configuration: " + err.message, true);
             }
         });
 
@@ -1118,14 +1160,12 @@
 
             if (type === 'progress') {
                 // Display Library Progress dynamically in the console
-                if (info && info.status) {
-                    logToConsole(`Transformers.js: ${info.status} ${info.name || info.file || ''} ${info.progress ? Math.round(info.progress) + '%' : ''}`);
-                }
+                logProgress('HF Hub', info);
             } else if (type === 'status') {
                 logToConsole(message, true);
             } else if (type === 'ready') {
                 isSystemReady = true;
-                logToConsole("All Models loaded! Ready for inference.", true);
+                logToConsole("[Main] Received 'ready' signal from Worker. VRAM/RAM allocation complete. Transitioning UI...", true);
 
                 // Smooth Transition UI to main screen
                 setTimeout(() => {
