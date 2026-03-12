@@ -631,7 +631,7 @@
                     const kokoro = await import("https://cdn.jsdelivr.net/npm/kokoro-js/+esm");
 
                     const llm_model_id = "LiquidAI/LFM2.5-1.2B-Instruct-ONNX";
-                    const tts_model_id = "onnx-community/Kokoro-82M-ONNX";
+                    const tts_model_id = "onnx-community/Kokoro-82M-v1.0-ONNX";
 
                     // Progress callback injection to send to main UI console
                     const progress_callback = (info) => self.postMessage({ type: 'progress', info });
