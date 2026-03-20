@@ -78,10 +78,7 @@ self.onmessage = async (e) => {
             
             chatHistory.push({ role: "user", content: text });
             
-            const customTemplate = "<|startoftext|>{% for message in messages %}<|im_start|>{{ message['role'] }}\n{{ message['content'] }}<|im_end|>\n{% endfor %}{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}";
-
             const inputs = tokenizer.apply_chat_template(chatHistory, { 
-                chat_template: customTemplate,
                 add_generation_prompt: true,
                 return_dict: true
             });
@@ -136,10 +133,11 @@ self.onmessage = async (e) => {
             try {
                 await model.generate({
                     ...inputs,
-                    max_new_tokens: 256,
+                    max_new_tokens: 512,
                     do_sample: true,
-                    temperature: 0.2,
+                    temperature: 0.1,
                     top_k: 50,
+                    top_p: 0.1,
                     repetition_penalty: 1.05,
                     streamer: streamer
                 });
