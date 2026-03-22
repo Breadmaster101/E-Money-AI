@@ -130,6 +130,7 @@ let audioChunks = [];
 let isRecording = false;
 let isPKeyDown = false;
 let isSystemReady = false;
+let isAssistantProcessing = false;
 
 // Smooth visualizer tracking variables
 let currentScale = 1;
@@ -408,6 +409,7 @@ function interruptAI() {
     worker.postMessage({ type: 'interrupt' });
     audioQueue = [];
     isPlaying = false;
+    isAssistantProcessing = false;
     audioPlayer.pause();
     audioPlayer.removeAttribute('src');
 
@@ -423,8 +425,10 @@ function interruptAI() {
 function playNextAudio() {
     if (audioQueue.length === 0) {
         isPlaying = false;
-        visualizerCircle.classList.remove("thinking");
-        pttLabel.textContent = "Hold 'P' to talk";
+        if (!isAssistantProcessing) {
+            visualizerCircle.classList.remove("thinking");
+            pttLabel.textContent = "Hold 'P' to talk";
+        }
         return;
     }
 
@@ -500,7 +504,11 @@ worker.onmessage = (e) => {
         }
         currentLLMResponse = "";
         currentAssistantSpan = null;
-        // Leave 'thinking' class until audio finishes in playNextAudio()
+        isAssistantProcessing = false;
+        if (!isPlaying && audioQueue.length === 0) {
+            visualizerCircle.classList.remove("thinking");
+            pttLabel.textContent = "Hold 'P' to talk";
+        }
     }
 };
 
@@ -600,6 +608,7 @@ function handleSend() {
     startAssistantMessage();
 
     visualizerCircle.classList.add("thinking");
+    isAssistantProcessing = true;
 
     worker.postMessage({
         type: 'generate',
