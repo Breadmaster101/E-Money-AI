@@ -17,8 +17,8 @@ self.onmessage = async (e) => {
     if (type === 'load') {
         try {
             self.postMessage({ type: 'status', message: '[Worker] Executing load payload. Importing ESM modules...' });
-            self.postMessage({ type: 'status', message: '[Worker] Importing https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.0.0-next.6' });
-            const transformers = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.0.0-next.6");
+            self.postMessage({ type: 'status', message: '[Worker] Importing https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.0.0-next.8' });
+            const transformers = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.0.0-next.8");
             self.postMessage({ type: 'status', message: '[Worker] Importing https://cdn.jsdelivr.net/npm/kokoro-js/+esm' });
             const kokoro = await import("https://cdn.jsdelivr.net/npm/kokoro-js/+esm");
 
