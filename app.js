@@ -14,17 +14,16 @@ console.log = function(...args) {
     }
 };
 
-// 2. Intercept window.fetch to generate real progress events that parakeet.js lacks
+// 2. Intercept window.fetch to generate real progress events for Parakeet STT downloads
 const originalFetch = window.fetch;
 window.fetch = async (...args) => {
     const reqUrl = typeof args[0] === 'string' ? args[0] : (args[0] instanceof Request ? args[0].url : '');
     const response = await originalFetch(...args);
     
-    // Target Parakeet model files fetching from Hugging Face Hub (or ysdede's repo)
+    // Target Parakeet model files fetching from Hugging Face Hub
     if (reqUrl.includes('ysdede') || reqUrl.includes('parakeet') || reqUrl.endsWith('.onnx')) {
         if (!response.ok || !response.body) return response;
         
-        // Get accurate file size for the calculation
         const sizeStr = response.headers.get('content-length') || response.headers.get('x-linked-size');
         if (!sizeStr) return response; 
 
@@ -47,7 +46,6 @@ window.fetch = async (...args) => {
                         loaded += value.byteLength;
                         controller.enqueue(value);
                         
-                        // Throttle UI DOM updates to ~5 times per second to prevent freezing
                         const now = performance.now();
                         if (now - lastUpdate > 200) {
                             const progress = (loaded / total) * 100;
@@ -62,7 +60,6 @@ window.fetch = async (...args) => {
             }
         });
 
-        // Return a proxy response that feeds the intercepted stream directly into Parakeet
         const newRes = new Response(stream, {
             headers: response.headers,
             status: response.status,
@@ -77,7 +74,7 @@ window.fetch = async (...args) => {
 // --- End Hooks ---
 
 // Worker Setup
-const worker = new Worker('worker.js');
+const worker = new Worker('worker.js', { type: 'module' });
 
 // Original DOM references (kept alive but hidden to avoid null ref errors)
 const btnInitModels = document.getElementById("btn-init-models");
@@ -107,8 +104,6 @@ const settingsFab = document.getElementById("settings-fab");
 const settingsModal = document.getElementById("settings-modal");
 const closeSettingsBtn = document.getElementById("closeSettingsBtn");
 const extVoiceSelect = document.getElementById("extVoiceSelect");
-const extSpeedSelect = document.getElementById("extSpeedSelect");
-const extSpeedValue = document.getElementById("extSpeedValue");
 const extVolumeSelect = document.getElementById("extVolumeSelect");
 const extVolumeValue = document.getElementById("extVolumeValue");
 const themeToggleBtn = document.getElementById("theme-toggle-btn");
@@ -125,6 +120,7 @@ let isVisualizerRunning = false;
 let audioQueue = [];
 let isPlaying = false;
 let currentAssistantSpan = null;
+let currentLLMResponse = "";
 let isFirstMessage = true;
 
 let sttModel = null;
@@ -165,10 +161,6 @@ themeToggleBtn.addEventListener('click', toggleTheme);
 
 
 // --- UI Sync & Settings Bindings ---
-extSpeedSelect.addEventListener("input", (e) => {
-    extSpeedValue.textContent = e.target.value;
-    speedSelect.value = e.target.value; // Sync with hidden original element
-});
 extVolumeSelect.addEventListener("input", (e) => {
     const vol = parseFloat(e.target.value);
     extVolumeValue.textContent = Math.round(vol * 100);
@@ -367,7 +359,6 @@ btnInitModels.addEventListener("click", async () => {
             type: 'load',
             payload: {
                 voice: extVoiceSelect.value,
-                speed: parseFloat(extSpeedSelect.value),
                 compatMode: compatModeCheckbox.checked 
             }
         });
@@ -492,6 +483,7 @@ worker.onmessage = (e) => {
         logToConsole("Error: " + message, true);
         console.error(message);
     } else if (type === 'token') {
+        currentLLMResponse += text;
         if (currentAssistantSpan) {
             currentAssistantSpan.textContent += text;
             scrollToBottom();
@@ -503,6 +495,10 @@ worker.onmessage = (e) => {
             playNextAudio();
         }
     } else if (type === 'done' || type === 'done_interrupted') {
+        if (currentLLMResponse.trim()) {
+            console.log(`[LLM] Response: "${currentLLMResponse.trim()}"`);
+        }
+        currentLLMResponse = "";
         currentAssistantSpan = null;
         // Leave 'thinking' class until audio finishes in playNextAudio()
     }
@@ -576,7 +572,9 @@ window.addEventListener('keyup', async (e) => {
                     });
 
                     if (result && result.utterance_text.trim()) {
-                        userInput.value = result.utterance_text.trim();
+                        const transcription = result.utterance_text.trim();
+                        console.log(`[STT] Transcription: "${transcription}"`);
+                        userInput.value = transcription;
                         handleSend();
                     }
 
@@ -607,8 +605,7 @@ function handleSend() {
         type: 'generate',
         payload: {
             text: text,
-            voice: extVoiceSelect.value,
-            speed: parseFloat(extSpeedSelect.value)
+            voice: extVoiceSelect.value
         }
     });
 }
