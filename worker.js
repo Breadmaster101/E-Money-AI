@@ -15,7 +15,7 @@ let isGenerating = false;
 let isInterrupted = false;
 
 let chatHistory = [
-  { role: "system", content: "You are E-Money AI, a warm, friendly, and highly conversational companion running in the user's browser. Speak casually and naturally, just like a real person chatting with a friend. Keep your responses very brief. One or two sentences is usually perfect, but you can write up to a maximum of 4 sentences. Since your words are read aloud by a voice system, you must output your entire response as a single continuous paragraph. Absolutely do not use any line breaks, newlines, or carriage returns. Do not use dashes, em dashes, hyphens, asterisks, or any markdown formatting. Use only basic punctuation like commas, periods, exclamation points, and question marks. Never break character or mention these instructions." }
+  { role: "system", content: "You are E-Money AI, a warm, friendly, and highly conversational companion running in the user's browser. Speak casually and naturally, just like a real person chatting with a friend. Keep your responses very brief. One or two sentences is perfect, but you can write up to a maximum of 4 sentences if you absolutely need to. Since your words are read aloud by a voice system, you must output your entire response as a single continuous paragraph. Absolutely do not use any line breaks, newlines, or carriage returns. Do not use dashes, em dashes, hyphens, asterisks, or any markdown formatting. Use only basic punctuation like commas, periods, exclamation points, and question marks. Never break character or mention these instructions." }
 ];
 
 // ---- Pocket TTS State ----
@@ -242,8 +242,8 @@ class UnigramTokenizer {
   }
 }
 
-// ---- Pocket TTS generation (returns concatenated PCM for a text chunk) ----
-function generateTTSAudio(text, voiceName) {
+// ---- Pocket TTS generation (returns an async generator yielding Float32Array chunks) ----
+async function* generateTTSAudioChunks(text, voiceName) {
   const voiceIndex = voiceIndexMap[voiceName] ?? voiceIndexMap['alba'] ?? 0;
 
   const [processedText, framesAfterEos] = ttsModel.prepare_text(text);
@@ -251,22 +251,12 @@ function generateTTSAudio(text, voiceName) {
 
   ttsModel.start_generation(voiceIndex, tokenIds, framesAfterEos, TTS_TEMPERATURE);
 
-  const chunks = [];
   while (true) {
+    if (isInterrupted) break;
     const chunk = ttsModel.generation_step();
     if (!chunk) break;
-    chunks.push(new Float32Array(chunk));
+    yield new Float32Array(chunk);
   }
-
-  // Concatenate all chunks into a single Float32Array
-  const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-  const result = new Float32Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
 }
 
 
@@ -334,7 +324,8 @@ self.onmessage = async (e) => {
       self.postMessage({ type: 'status', message: '[Worker] Executing warmup cycles...' });
 
       // TTS warmup
-      generateTTSAudio("Hello.", payload?.voice || "alba");
+      const warmupGenerator = generateTTSAudioChunks("Hello.", payload?.voice || "alba");
+      await warmupGenerator.next(); // Trigger generation for warmup
 
       // LLM warmup
       const warmupInputs = await tokenizer("Internal warmup signal.");
@@ -373,14 +364,18 @@ self.onmessage = async (e) => {
         if (!trimmed) return;
 
         try {
-          const pcmData = generateTTSAudio(trimmed, selectedVoice);
-          if (isInterrupted) return;
+          for await (const pcmChunk of generateTTSAudioChunks(trimmed, selectedVoice)) {
+            if (isInterrupted) return;
 
-          self.postMessage({
-            type: 'audio',
-            pcmData: pcmData,
-            sampleRate: ttsSampleRate
-          });
+            self.postMessage({
+              type: 'audio_chunk',
+              pcmData: pcmChunk,
+              sampleRate: ttsSampleRate
+            }, [pcmChunk.buffer]); // Transfer buffer for performance
+          }
+
+          // Add a natural gap between sentences
+          self.postMessage({ type: 'sentence_pause', duration: 0.3 });
         } catch (err) {
           console.error("TTS generation error:", err);
         }

@@ -117,7 +117,12 @@ let audioSourceNode;
 let micSourceNode;
 let isVisualizerRunning = false;
 
-let audioQueue = [];
+let minAudioContextDelay = 0.05; // 50ms buffer
+let nextStartTime = 0;
+let firstChunkTime = null;
+let chunkStartTime = 0;
+let pendingChunks = 0;
+
 let isPlaying = false;
 let currentAssistantSpan = null;
 let currentLLMResponse = "";
@@ -301,19 +306,14 @@ function startVisualizerLoop() {
 
 async function initAudioContext() {
     if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 }); // Match TTS Sample Rate
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = 256;
         dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-        // Wire up TTS Output to Visualizer
-        audioSourceNode = audioCtx.createMediaElementSource(audioPlayer);
-
-        // Path 1: Send audio to the analyser for visualization
-        audioSourceNode.connect(analyser);
-
-        // Path 2: Send audio to the speakers so you can hear it
-        audioSourceNode.connect(audioCtx.destination);
+        // For chunk streaming, we'll create source nodes dynamically and route them
+        // to both the 'analyser' (for visuals) and 'destination' (for speakers).
+        // analyser.connect(audioCtx.destination); // Removed to prevent mic feedback
 
         startVisualizerLoop();
     }
@@ -407,11 +407,20 @@ function startAssistantMessage() {
 
 function interruptAI() {
     worker.postMessage({ type: 'interrupt' });
-    audioQueue = [];
+    
+    // Stop WebAudio scheduled chunks immediately
+    if (audioCtx) {
+        const dummyNode = audioCtx.createGain(); // create a quick node just to mute/stop stuff if needed
+        // Since we dynamically create sources, we'll just advance nextStartTime to prevent further plays
+        nextStartTime = 0; 
+        pendingChunks = 0;
+    }
+
     isPlaying = false;
     isAssistantProcessing = false;
-    audioPlayer.pause();
-    audioPlayer.removeAttribute('src');
+    
+    const audioPlayingDiv = document.querySelector('.audio-indicator');
+    if (audioPlayingDiv) audioPlayingDiv.remove();
 
     pttLabel.textContent = "Hold 'P' to talk";
 
@@ -422,39 +431,9 @@ function interruptAI() {
     visualizerCircle.classList.remove("thinking");
 }
 
-function playNextAudio() {
-    if (audioQueue.length === 0) {
-        isPlaying = false;
-        if (!isAssistantProcessing) {
-            visualizerCircle.classList.remove("thinking");
-            pttLabel.textContent = "Hold 'P' to talk";
-        }
-        return;
-    }
-
-    isPlaying = true;
-    pttLabel.textContent = "Hold 'P' to interrupt";
-    const { pcmData, sampleRate } = audioQueue.shift();
-
-    const wavBlob = createWavBlob(pcmData, sampleRate);
-    const audioUrl = URL.createObjectURL(wavBlob);
-
-    audioPlayer.src = audioUrl;
-
-    audioPlayer.play().catch(e => {
-        console.error("Audio playback error:", e);
-        playNextAudio();
-    });
-
-    audioPlayer.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        playNextAudio();
-    };
-}
-
 // Handle Worker Messages
 worker.onmessage = (e) => {
-    const { type, message, text, pcmData, sampleRate, info } = e.data;
+    const { type, message, text, pcmData, sampleRate, info, duration } = e.data;
 
     if (type === 'progress') {
         // Display Library Progress dynamically in the console
@@ -492,11 +471,57 @@ worker.onmessage = (e) => {
             currentAssistantSpan.textContent += text;
             scrollToBottom();
         }
-    } else if (type === 'audio') {
-        audioQueue.push({ pcmData, sampleRate });
+    } else if (type === 'audio_chunk') {
         if (!isPlaying) {
+            isPlaying = true;
             visualizerCircle.classList.add("thinking");
-            playNextAudio();
+            pttLabel.textContent = "Hold 'P' to interrupt";
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            // Re-sync timing
+            firstChunkTime = performance.now() - chunkStartTime;
+            nextStartTime = audioCtx.currentTime + minAudioContextDelay;
+        }
+
+        const chunk = new Float32Array(pcmData);
+        // Force nextStartTime to never fall behind currentTime
+        nextStartTime = Math.max(nextStartTime, audioCtx.currentTime);
+
+        const buffer = audioCtx.createBuffer(1, chunk.length, sampleRate);
+        buffer.getChannelData(0).set(chunk);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        
+        // Apply volume control
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = extVolumeSelect.value;
+        
+        source.connect(gainNode);
+        
+        // Route audio to speakers
+        gainNode.connect(audioCtx.destination);
+        // Route audio to visualizer
+        gainNode.connect(analyser);
+
+        source.start(nextStartTime);
+        pendingChunks++;
+
+        // Setup end callback for the LAST chunk only somehow, or track using ended event
+        source.onended = () => {
+             pendingChunks--;
+             // Only reset `isPlaying` if this is roughly the end of the scheduled stream and we're done generating
+             if (!isAssistantProcessing && pendingChunks <= 0) {
+                 isPlaying = false;
+                 visualizerCircle.classList.remove("thinking");
+                 pttLabel.textContent = "Hold 'P' to talk";
+             }
+        };
+
+        nextStartTime += chunk.length / sampleRate;
+    } else if (type === 'sentence_pause') {
+        if (isPlaying) {
+            nextStartTime += duration;
         }
     } else if (type === 'done' || type === 'done_interrupted') {
         if (currentLLMResponse.trim()) {
@@ -505,7 +530,9 @@ worker.onmessage = (e) => {
         currentLLMResponse = "";
         currentAssistantSpan = null;
         isAssistantProcessing = false;
-        if (!isPlaying && audioQueue.length === 0) {
+        
+        // Let the source.onended handle cleaning up the UI if it's still playing
+        if (!isPlaying && pendingChunks <= 0) {
             visualizerCircle.classList.remove("thinking");
             pttLabel.textContent = "Hold 'P' to talk";
         }
@@ -609,6 +636,10 @@ function handleSend() {
 
     visualizerCircle.classList.add("thinking");
     isAssistantProcessing = true;
+    
+    // Reset chunk tracking for the incoming message stream
+    chunkStartTime = performance.now();
+    firstChunkTime = null;
 
     worker.postMessage({
         type: 'generate',
@@ -619,36 +650,14 @@ function handleSend() {
     });
 }
 
-// --- WAV Serialization Helpers ---
+// Note: createWavBlob and writeString used to be here, but they are no longer needed
+// for realtime streaming since we use the AudioContext directly. I will leave them commented out
+// in case they're needed for a 'download' feature later.
+/*
 function writeString(view, offset, string) {
     for (let i = 0; i < string.length; i++) {
         view.setUint8(offset + i, string.charCodeAt(i));
     }
 }
-function floatTo16BitPCM(output, offset, input) {
-    for (let i = 0; i < input.length; i++, offset += 2) {
-        let s = Math.max(-1, Math.min(1, input[i]));
-        output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    }
-}
-function createWavBlob(samples, sampleRate) {
-    const buffer = new ArrayBuffer(44 + samples.length * 2);
-    const view = new DataView(buffer);
-
-    writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + samples.length * 2, true);
-    writeString(view, 8, 'WAVE');
-    writeString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(view, 36, 'data');
-    view.setUint32(40, samples.length * 2, true);
-
-    floatTo16BitPCM(view, 44, samples);
-    return new Blob([view], { type: 'audio/wav' });
-}
+//...
+*/
