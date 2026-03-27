@@ -1,2 +1,1 @@
-- make model say "Hey, I'm E Money AI. What would you like to talk about?" after UI transition happens
-- fix bug where interrupting no longer works
+- replace current LLM with qwen3.5 2b once it's optimized on transformers.js

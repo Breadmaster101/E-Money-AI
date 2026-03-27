@@ -124,6 +124,7 @@ let chunkStartTime = 0;
 let pendingChunks = 0;
 
 let isPlaying = false;
+let activeAudioSources = [];
 let currentAssistantSpan = null;
 let currentLLMResponse = "";
 let isFirstMessage = true;
@@ -408,10 +409,13 @@ function startAssistantMessage() {
 function interruptAI() {
     worker.postMessage({ type: 'interrupt' });
     
-    // Stop WebAudio scheduled chunks immediately
+    // Stop all currently playing/scheduled AudioBufferSourceNodes immediately
+    for (const src of activeAudioSources) {
+        try { src.stop(); } catch (_) { /* already stopped */ }
+    }
+    activeAudioSources = [];
+
     if (audioCtx) {
-        const dummyNode = audioCtx.createGain(); // create a quick node just to mute/stop stuff if needed
-        // Since we dynamically create sources, we'll just advance nextStartTime to prevent further plays
         nextStartTime = 0; 
         pendingChunks = 0;
     }
@@ -460,6 +464,12 @@ worker.onmessage = (e) => {
                 // 4. Trigger the fade-in animation on the new elements
                 mainScreen.classList.add("fade-in");
                 settingsFab.classList.add("fade-in");
+
+                // 5. Auto-greet: speak the greeting and inject it into model context
+                isAssistantProcessing = true;
+                chunkStartTime = performance.now();
+                firstChunkTime = null;
+                worker.postMessage({ type: 'greet', payload: { voice: extVoiceSelect.value } });
             }, 500);
         }, 1000);
     } else if (type === 'error') {
@@ -506,10 +516,13 @@ worker.onmessage = (e) => {
 
         source.start(nextStartTime);
         pendingChunks++;
+        activeAudioSources.push(source);
 
         // Setup end callback for the LAST chunk only somehow, or track using ended event
         source.onended = () => {
              pendingChunks--;
+             const idx = activeAudioSources.indexOf(source);
+             if (idx !== -1) activeAudioSources.splice(idx, 1);
              // Only reset `isPlaying` if this is roughly the end of the scheduled stream and we're done generating
              if (!isAssistantProcessing && pendingChunks <= 0) {
                  isPlaying = false;

@@ -340,6 +340,35 @@ self.onmessage = async (e) => {
       self.postMessage({ type: 'error', message: error.message });
     }
   }
+  else if (type === 'greet') {
+    isGenerating = true;
+    isInterrupted = false;
+    const greetingText = "Hey, I'm E Money AI. What would you like to talk about?";
+    const selectedVoice = payload?.voice || "alba";
+
+    try {
+      // Stream TTS audio for the greeting
+      for await (const pcmChunk of generateTTSAudioChunks(greetingText, selectedVoice)) {
+        if (isInterrupted) break;
+        self.postMessage({
+          type: 'audio_chunk',
+          pcmData: pcmChunk,
+          sampleRate: ttsSampleRate
+        }, [pcmChunk.buffer]);
+      }
+
+      // Inject greeting into chat history so model knows it said it
+      if (!isInterrupted) {
+        chatHistory.push({ role: "assistant", content: greetingText });
+      }
+
+      self.postMessage({ type: isInterrupted ? 'done_interrupted' : 'done' });
+    } catch (error) {
+      self.postMessage({ type: 'error', message: error.message });
+    } finally {
+      isGenerating = false;
+    }
+  }
   else if (type === 'generate') {
     isGenerating = true;
     isInterrupted = false;
